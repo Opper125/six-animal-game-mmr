@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Control Panel</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1e1e2f;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #control-panel {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            width: 100%;
+            max-width: 400px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #0ff;
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            margin: 5px;
+        }
+        select {
+            padding: 5px;
+            margin: 5px;
+        }
+        #status, #server-timer, #server-players, #server-bets { font-size: 16px; margin: 10px 0; }
+        #server-cup {
+            width: 80px;
+            height: 80px;
+            margin: 10px auto;
+            position: relative;
+        }
+        .result-animal {
+            position: absolute;
+            width: 50px;
+            opacity: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        #server-bets-table {
+            width: 100%;
+            text-align: left;
+            font-size: 14px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="control-panel">
+        <h2>Server Control Panel</h2>
+        <div id="status">Status: Stopped</div>
+        <button onclick="pauseGame()">Pause Game</button>
+        <button onclick="resumeGame()">Resume Game</button>
+        <div id="server-timer">အချိန်: 20 စက္ကန့်</div>
+        <div id="server-players">အွန်လိုင်း ကစားသူ: 0</div>
+        <div id="server-cup"><img src="https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/cup.png"></div>
+        <h3>Select Winning Animals</h3>
+        <select id="winner1">
+            <option value="fox">Fox</option>
+            <option value="tiger">Tiger</option>
+            <option value="whale">Whale</option>
+            <option value="ox">Ox</option>
+            <option value="camel">Camel</option>
+            <option value="eagle">Eagle</option>
+        </select>
+        <select id="winner2">
+            <option value="fox">Fox</option>
+            <option value="tiger">Tiger</option>
+            <option value="whale">Whale</option>
+            <option value="ox">Ox</option>
+            <option value="camel">Camel</option>
+            <option value="eagle">Eagle</option>
+        </select>
+        <select id="winner3">
+            <option value="fox">Fox</option>
+            <option value="tiger">Tiger</option>
+            <option value="whale">Whale</option>
+            <option value="ox">Ox</option>
+            <option value="camel">Camel</option>
+            <option value="eagle">Eagle</option>
+        </select>
+        <button onclick="setWinners()">Set Winners</button>
+        <h3>လောင်းကြေးများ</h3>
+        <div id="server-bets"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.11.5/gsap.min.js"></script>
+    <script>
+        const supabaseUrl = 'https://lrgkfajewylxfeelumwg.supabase.co';
+        const supabaseKey = 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZ2tmYWpld3lseGZlZWx1bXdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwNjI3MzQsImV4cCI6MjA1NzYzODczNH0.tXl5eDZ0rbYUh0RiNN3qIgwHtC2sgB3fNwyutuGX5A4';
+        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+        let serverStatus = 'stopped';
+        let winners = [];
+        let bets = {};
+        let currentRound = 0;
+
+        const animalImages = {
+            fox: 'https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/fox.png',
+            tiger: 'https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/tiger.png',
+            whale: 'https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/whale.png',
+            ox: 'https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/ox.png',
+            camel: 'https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/camel.png',
+            eagle: 'https://raw.githubusercontent.com/Opper125/six-animal-game-mmr/main/images/eagle.png'
+        };
+
+        async function fetchCurrentRound() {
+            const { data, error } = await supabase
+                .from('rounds')
+                .select('round_number, status, winners')
+                .order('round_number', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (error && error.code !== 'PGRST116') throw error;
+            if (data) {
+                currentRound = data.round_number;
+                serverStatus = data.status;
+                winners = data.winners || [];
+                document.getElementById('status').textContent = `Status: ${serverStatus}`;
+            } else {
+                currentRound = 0;
+                serverStatus = 'stopped';
+                await supabase.from('rounds').insert({ round_number: currentRound, status: 'stopped' });
+            }
+        }
+
+        async function pauseGame() {
+            serverStatus = 'stopped';
+            document.getElementById('status').textContent = 'Status: Stopped';
+            await supabase.from('rounds').update({ status: 'stopped' }).eq('round_number', currentRound);
+            supabase.channel('server').send({
+                type: 'broadcast',
+                event: 'status',
+                status: serverStatus,
+                winners: winners
+            });
+        }
+
+        async function resumeGame() {
+            serverStatus = 'running';
+            document.getElementById('status').textContent = 'Status: Running';
+            await supabase.from('rounds').update({ status: 'running' }).eq('round_number', currentRound);
+            supabase.channel('server').send({
+                type: 'broadcast',
+                event: 'status',
+                status: serverStatus,
+                winners: winners
+            });
+            animateCup();
+        }
+
+        async function setWinners() {
+            winners = [
+                document.getElementById('winner1').value,
+                document.getElementById('winner2').value,
+                document.getElementById('winner3').value
+            ];
+            alert('Winners set: ' + winners.join(', '));
+            await supabase.from('rounds').update({ winners }).eq('round_number', currentRound);
+            if (serverStatus === 'running') {
+                supabase.channel('server').send({
+                    type: 'broadcast',
+                    event: 'status',
+                    status: serverStatus,
+                    winners: winners
+                });
+            }
+        }
+
+        function animateCup() {
+            const cup = document.getElementById('server-cup');
+            gsap.to(cup, { 
+                x: 5, 
+                repeat: 5, 
+                yoyo: true, 
+                duration: 0.1, 
+                ease: "power1.inOut", 
+                onComplete: () => {
+                    gsap.to(cup, { 
+                        y: -40, 
+                        duration: 1, 
+                        ease: "power2.out", 
+                        onComplete: () => {
+                            gsap.to(cup, { 
+                                y: 0, 
+                                duration: 1, 
+                                ease: "bounce.out", 
+                                delay: 2 
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        function subscribeToServer() {
+            const channel = supabase.channel('server');
+
+            channel.on('broadcast', { event: 'timer' }, payload => {
+                document.getElementById('server-timer').textContent = `အချိန်: ${payload.timer} စက္ကန့်`;
+            });
+
+            channel.on('broadcast', { event: 'winners' }, payload => {
+                const cup = document.getElementById('server-cup');
+                gsap.to(cup, { y: -80, duration: 1.5, ease: "power1.out" });
+
+                setTimeout(() => {
+                    payload.winners.forEach((animal, index) => {
+                        const resultImg = document.createElement('img');
+                        resultImg.src = animalImages[animal];
+                        resultImg.className = 'result-animal';
+                        cup.appendChild(resultImg);
+                        gsap.fromTo(resultImg, 
+                            { y: 40, opacity: 0, scale: 0 }, 
+                            { 
+                                y: -40 - (index * 50), 
+                                opacity: 1, 
+                                scale: 1, 
+                                duration: 1, 
+                                delay: index * 0.3, 
+                                ease: "back.out(1.7)", 
+                                onComplete: () => setTimeout(() => resultImg.remove(), 2000) 
+                            }
+                        );
+                    });
+                }, 1500);
+            });
+
+            channel.on('broadcast', { event: 'players' }, payload => {
+                document.getElementById('server-players').textContent = `အွန်လိုင်း ကစားသူ: ${payload.players}`;
+            });
+
+            channel.on('broadcast', { event: 'bets' }, payload => {
+                const bet = payload.bet;
+                bets[bet.user_id] = bets[bet.user_id] || {};
+                bets[bet.user_id][bet.animal] = bet.amount;
+                updateBetsDisplay();
+            });
+
+            channel.subscribe();
+        }
+
+        function updateBetsDisplay() {
+            const betsDiv = document.getElementById('server-bets');
+            betsDiv.innerHTML = '';
+            const table = document.createElement('div');
+            table.id = 'server-bets-table';
+            for (const userId in bets) {
+                const userBets = bets[userId];
+                for (const animal in userBets) {
+                    const betLine = document.createElement('div');
+                    betLine.textContent = `User ${userId}: ${animal} - ${userBets[animal]} MMK`;
+                    table.appendChild(betLine);
+                }
+            }
+            betsDiv.appendChild(table);
+        }
+
+        window.onload = async () => {
+            await fetchCurrentRound();
+            subscribeToServer();
+        };
+    </script>
+</body>
+</html>
